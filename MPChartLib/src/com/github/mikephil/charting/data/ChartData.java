@@ -442,7 +442,9 @@ public abstract class ChartData<T extends IDataSet<? extends Entry>> {
 	public int getNonEmptyValCount() {
 		int count = 0;
 		for (int i = 0; i < mXVals.size(); i++) {
-			count++;
+			if (!TextUtils.isEmpty(mXVals.get(i))) {
+				count++;
+			}
 		}
 		return count;
 	}
