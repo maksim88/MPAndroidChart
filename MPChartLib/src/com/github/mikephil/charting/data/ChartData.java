@@ -439,6 +439,14 @@ public abstract class ChartData<T extends IDataSet<? extends Entry>> {
 		return mXVals.size();
 	}
 
+	public int getNonEmptyValCount() {
+		int count = 0;
+		for (int i = 0; i < mXVals.size(); i++) {
+			count++;
+		}
+		return count;
+	}
+
 	/**
 	 * Returns the labels of all DataSets as a string array.
 	 *
