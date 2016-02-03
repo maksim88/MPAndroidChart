@@ -155,13 +155,16 @@ public abstract class ChartData<T extends IDataSet<? extends Entry>> {
 
 		float sum = 1f;
 
+		int valsCount = 0;
+
 		for (int i = 0; i < mXVals.size(); i++) {
 			if (!TextUtils.isEmpty(mXVals.get(i))) {
 				sum += mXVals.get(i).length();
+				valsCount++;
 			}
 		}
 
-		mXValAverageLength = sum / (float) mXVals.size();
+		mXValAverageLength = sum / (float) valsCount;
 	}
 
 	/**
