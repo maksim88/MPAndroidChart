@@ -3,8 +3,8 @@ package com.github.mikephil.charting.data.realm.implementation;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.DashPathEffect;
+import android.graphics.drawable.Drawable;
 
-import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.realm.base.RealmLineRadarDataSet;
 import com.github.mikephil.charting.formatter.DefaultFillFormatter;
 import com.github.mikephil.charting.formatter.FillFormatter;
@@ -17,7 +17,6 @@ import java.util.List;
 
 import io.realm.RealmObject;
 import io.realm.RealmResults;
-import io.realm.dynamic.DynamicRealmObject;
 
 /**
  * Created by Philipp Jahoda on 21/10/15.
@@ -64,8 +63,12 @@ public class RealmLineDataSet<T extends RealmObject> extends RealmLineRadarDataS
      */
     private boolean mDrawCubic = false;
 
-    private boolean mDrawCircleHole = true;
+    /**
+     * if true, stepped lines are drawn instead of linear
+     */
+    private boolean mDrawStepped = false;
 
+    private boolean mDrawCircleHole = true;
 
     /**
      * Constructor for creating a LineDataSet with realm data.
@@ -203,6 +206,23 @@ public class RealmLineDataSet<T extends RealmObject> extends RealmLineRadarDataS
     @Override
     public boolean isDrawCubicEnabled() {
         return mDrawCubic;
+    }
+
+    /**
+     * If set to true, the linechart lines are drawn in stepped-style instead of
+     * linear.
+     * This does not work with cubic lines, of course.
+     * Default: false
+     *
+     * @param enabled
+     */
+    public void setDrawStepped(boolean enabled) {
+        mDrawStepped = enabled;
+    }
+
+    @Override
+    public boolean isDrawSteppedEnabled() {
+        return mDrawStepped;
     }
 
     /** ALL CODE BELOW RELATED TO CIRCLE-COLORS */

@@ -7,8 +7,10 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Paint.Align;
 import android.graphics.Paint.Style;
+import android.graphics.Path;
 import android.graphics.PointF;
 import android.graphics.RectF;
+import android.os.Build;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -24,6 +26,7 @@ import com.github.mikephil.charting.interfaces.datasets.IPieDataSet;
 import com.github.mikephil.charting.utils.Utils;
 import com.github.mikephil.charting.utils.ViewPortHandler;
 
+import java.lang.ref.WeakReference;
 import java.util.List;
 
 public class PieChartRenderer extends DataRenderer {
@@ -51,7 +54,7 @@ public class PieChartRenderer extends DataRenderer {
     /**
      * Bitmap for drawing the center hole
      */
-    protected Bitmap mDrawBitmap;
+    protected WeakReference<Bitmap> mDrawBitmap;
 
     protected Canvas mBitmapCanvas;
 
@@ -72,7 +75,6 @@ public class PieChartRenderer extends DataRenderer {
         mCenterTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         mCenterTextPaint.setColor(Color.BLACK);
         mCenterTextPaint.setTextSize(Utils.convertDpToPixel(12f));
-        //mCenterTextPaint.setTextAlign(Align.CENTER);
 
         mValuePaint.setTextSize(Utils.convertDpToPixel(13f));
         mValuePaint.setColor(Color.WHITE);
@@ -103,18 +105,18 @@ public class PieChartRenderer extends DataRenderer {
         int height = (int) mViewPortHandler.getChartHeight();
 
         if (mDrawBitmap == null
-                || (mDrawBitmap.getWidth() != width)
-                || (mDrawBitmap.getHeight() != height)) {
+                || (mDrawBitmap.get().getWidth() != width)
+                || (mDrawBitmap.get().getHeight() != height)) {
 
             if (width > 0 && height > 0) {
 
-                mDrawBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_4444);
-                mBitmapCanvas = new Canvas(mDrawBitmap);
+                mDrawBitmap = new WeakReference<Bitmap>(Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_4444));
+                mBitmapCanvas = new Canvas(mDrawBitmap.get());
             } else
                 return;
         }
 
-        mDrawBitmap.eraseColor(Color.TRANSPARENT);
+        mDrawBitmap.get().eraseColor(Color.TRANSPARENT);
 
         PieData pieData = mChart.getData();
 
@@ -125,17 +127,83 @@ public class PieChartRenderer extends DataRenderer {
         }
     }
 
+    private Path mPathBuffer = new Path();
+    private RectF mInnerRectBuffer = new RectF();
+
+    protected float calculateMinimumRadiusForSpacedSlice(
+            PointF center,
+            float radius,
+            float angle,
+            float arcStartPointX,
+            float arcStartPointY,
+            float startAngle,
+            float sweepAngle)
+    {
+        final float angleMiddle = startAngle + sweepAngle / 2.f;
+
+        // Other point of the arc
+        float arcEndPointX = center.x + radius * (float) Math.cos((startAngle + sweepAngle) * Utils.FDEG2RAD);
+        float arcEndPointY = center.y + radius * (float) Math.sin((startAngle + sweepAngle) * Utils.FDEG2RAD);
+
+        // Middle point on the arc
+        float arcMidPointX = center.x + radius * (float) Math.cos(angleMiddle * Utils.FDEG2RAD);
+        float arcMidPointY = center.y + radius * (float) Math.sin(angleMiddle * Utils.FDEG2RAD);
+
+        // This is the base of the contained triangle
+        double basePointsDistance = Math.sqrt(
+                Math.pow(arcEndPointX - arcStartPointX, 2) +
+                        Math.pow(arcEndPointY - arcStartPointY, 2));
+
+        // After reducing space from both sides of the "slice",
+        //   the angle of the contained triangle should stay the same.
+        // So let's find out the height of that triangle.
+        float containedTriangleHeight = (float)(basePointsDistance / 2.0 *
+                Math.tan((180.0 - angle) / 2.0 * Utils.DEG2RAD));
+
+        // Now we subtract that from the radius
+        float spacedRadius = radius - containedTriangleHeight;
+
+        // And now subtract the height of the arc that's between the triangle and the outer circle
+        spacedRadius -= Math.sqrt(
+                Math.pow(arcMidPointX - (arcEndPointX + arcStartPointX) / 2.f, 2) +
+                        Math.pow(arcMidPointY - (arcEndPointY + arcStartPointY) / 2.f, 2));
+
+        return spacedRadius;
+    }
+
     protected void drawDataSet(Canvas c, IPieDataSet dataSet) {
 
         float angle = 0;
         float rotationAngle = mChart.getRotationAngle();
 
-        float[] drawAngles = mChart.getDrawAngles();
+        float phaseX = mAnimator.getPhaseX();
+        float phaseY = mAnimator.getPhaseY();
 
-        for (int j = 0; j < dataSet.getEntryCount(); j++) {
+        final RectF circleBox = mChart.getCircleBox();
+
+        final int entryCount = dataSet.getEntryCount();
+        final float[] drawAngles = mChart.getDrawAngles();
+        final PointF center = mChart.getCenterCircleBox();
+        final float radius = mChart.getRadius();
+        final boolean drawInnerArc = mChart.isDrawHoleEnabled() && !mChart.isDrawSlicesUnderHoleEnabled();
+        final float userInnerRadius = drawInnerArc
+                ? radius * (mChart.getHoleRadius() / 100.f)
+                : 0.f;
+
+        int visibleAngleCount = 0;
+        for (int j = 0; j < entryCount; j++) {
+            // draw only if the value is greater than zero
+            if ((Math.abs(dataSet.getEntryForIndex(j).getVal()) > 0.000001)) {
+                visibleAngleCount++;
+            }
+        }
+
+        final float sliceSpace = visibleAngleCount <= 1 ? 0.f : dataSet.getSliceSpace();
+
+        for (int j = 0; j < entryCount; j++) {
 
             float sliceAngle = drawAngles[j];
-            float sliceSpace = dataSet.getSliceSpace();
+            float innerRadius = userInnerRadius;
 
             Entry e = dataSet.getEntryForIndex(j);
 
@@ -145,15 +213,135 @@ public class PieChartRenderer extends DataRenderer {
                 if (!mChart.needsHighlight(e.getXIndex(),
                         mChart.getData().getIndexOfDataSet(dataSet))) {
 
+                    final boolean accountForSliceSpacing = sliceSpace > 0.f && sliceAngle <= 180.f;
+
                     mRenderPaint.setColor(dataSet.getColor(j));
-                    mBitmapCanvas.drawArc(mChart.getCircleBox(),
-                            rotationAngle + (angle + sliceSpace / 2f) * mAnimator.getPhaseY(),
-                            (sliceAngle - sliceSpace / 2f) * mAnimator.getPhaseY(),
-                            true, mRenderPaint);
+
+                    final float sliceSpaceAngleOuter = visibleAngleCount == 1 ?
+                            0.f :
+                            sliceSpace / (Utils.FDEG2RAD * radius);
+                    final float startAngleOuter = rotationAngle + (angle + sliceSpaceAngleOuter / 2.f) * phaseY;
+                    float sweepAngleOuter = (sliceAngle - sliceSpaceAngleOuter) * phaseY;
+                    if (sweepAngleOuter < 0.f)
+                    {
+                        sweepAngleOuter = 0.f;
+                    }
+
+                    mPathBuffer.reset();
+
+                    float arcStartPointX = 0.f, arcStartPointY = 0.f;
+
+                    if (sweepAngleOuter % 360f == 0.f) {
+                        // Android is doing "mod 360"
+                        mPathBuffer.addCircle(center.x, center.y, radius, Path.Direction.CW);
+                    } else {
+
+                        arcStartPointX = center.x + radius * (float) Math.cos(startAngleOuter * Utils.FDEG2RAD);
+                        arcStartPointY = center.y + radius * (float) Math.sin(startAngleOuter * Utils.FDEG2RAD);
+
+                        mPathBuffer.moveTo(arcStartPointX, arcStartPointY);
+
+                        mPathBuffer.arcTo(
+                                circleBox,
+                                startAngleOuter,
+                                sweepAngleOuter
+                        );
+                    }
+
+                    // API < 21 does not receive floats in addArc, but a RectF
+                    mInnerRectBuffer.set(
+                            center.x - innerRadius,
+                            center.y - innerRadius,
+                            center.x + innerRadius,
+                            center.y + innerRadius);
+
+                    if (drawInnerArc &&
+                            (innerRadius > 0.f || accountForSliceSpacing)) {
+
+                        if (accountForSliceSpacing) {
+                            float minSpacedRadius =
+                                    calculateMinimumRadiusForSpacedSlice(
+                                            center, radius,
+                                            sliceAngle * phaseY,
+                                            arcStartPointX, arcStartPointY,
+                                            startAngleOuter,
+                                            sweepAngleOuter);
+
+                            if (minSpacedRadius < 0.f)
+                                minSpacedRadius = -minSpacedRadius;
+
+                            innerRadius = Math.max(innerRadius, minSpacedRadius);
+                        }
+
+                        final float sliceSpaceAngleInner = visibleAngleCount == 1 || innerRadius == 0.f ?
+                                0.f :
+                                sliceSpace / (Utils.FDEG2RAD * innerRadius);
+                        final float startAngleInner = rotationAngle + (angle + sliceSpaceAngleInner / 2.f) * phaseY;
+                        float sweepAngleInner = (sliceAngle - sliceSpaceAngleInner) * phaseY;
+                        if (sweepAngleInner < 0.f)
+                        {
+                            sweepAngleInner = 0.f;
+                        }
+                        final float endAngleInner = startAngleInner + sweepAngleInner;
+
+                        if (sweepAngleOuter % 360f == 0.f) {
+                            // Android is doing "mod 360"
+                            mPathBuffer.addCircle(center.x, center.y, innerRadius, Path.Direction.CCW);
+                        } else {
+
+                            mPathBuffer.lineTo(
+                                    center.x + innerRadius * (float) Math.cos(endAngleInner * Utils.FDEG2RAD),
+                                    center.y + innerRadius * (float) Math.sin(endAngleInner * Utils.FDEG2RAD));
+
+                            mPathBuffer.arcTo(
+                                    mInnerRectBuffer,
+                                    endAngleInner,
+                                    -sweepAngleInner
+                            );
+                        }
+                    }
+                    else {
+
+                        if (sweepAngleOuter % 360f != 0.f) {
+                            if (accountForSliceSpacing) {
+
+                                float angleMiddle = startAngleOuter + sweepAngleOuter / 2.f;
+
+                                float sliceSpaceOffset =
+                                        calculateMinimumRadiusForSpacedSlice(
+                                                center,
+                                                radius,
+                                                sliceAngle * phaseY,
+                                                arcStartPointX,
+                                                arcStartPointY,
+                                                startAngleOuter,
+                                                sweepAngleOuter);
+
+                                float arcEndPointX = center.x +
+                                        sliceSpaceOffset * (float) Math.cos(angleMiddle * Utils.FDEG2RAD);
+                                float arcEndPointY = center.y +
+                                        sliceSpaceOffset * (float) Math.sin(angleMiddle * Utils.FDEG2RAD);
+
+                                mPathBuffer.lineTo(
+                                        arcEndPointX,
+                                        arcEndPointY);
+
+                            } else {
+                                mPathBuffer.lineTo(
+                                        center.x,
+                                        center.y);
+                            }
+                        }
+
+                    }
+
+                    mPathBuffer.close();
+
+                    mBitmapCanvas.drawPath(mPathBuffer, mRenderPaint);
                 }
             }
 
-            angle += sliceAngle * mAnimator.getPhaseX();
+            angle += sliceAngle * phaseX;
         }
     }
 
@@ -167,6 +355,9 @@ public class PieChartRenderer extends DataRenderer {
         float rotationAngle = mChart.getRotationAngle();
         float[] drawAngles = mChart.getDrawAngles();
         float[] absoluteAngles = mChart.getAbsoluteAngles();
+
+        float phaseX = mAnimator.getPhaseX();
+        float phaseY = mAnimator.getPhaseY();
 
         float off = r / 10f * 3.6f;
 
@@ -183,7 +374,8 @@ public class PieChartRenderer extends DataRenderer {
 
         boolean drawXVals = mChart.isDrawSliceTextEnabled();
 
-        int cnt = 0;
+        float angle;
+        int xIndex = 0;
 
         for (int i = 0; i < dataSets.size(); i++) {
 
@@ -201,14 +393,24 @@ public class PieChartRenderer extends DataRenderer {
             int entryCount = dataSet.getEntryCount();
 
             for (int j = 0, maxEntry = Math.min(
-                    (int) Math.ceil(entryCount * mAnimator.getPhaseX()), entryCount); j < maxEntry; j++) {
+                    (int) Math.ceil(entryCount * phaseX), entryCount); j < maxEntry; j++) {
 
                 Entry entry = dataSet.getEntryForIndex(j);
 
-                // offset needed to center the drawn text in the slice
-                float offset = drawAngles[cnt] / 2;
+                if (xIndex == 0)
+                    angle = 0.f;
+                else
+                    angle = absoluteAngles[xIndex - 1] * phaseX;
 
-                float angle = (absoluteAngles[cnt] - offset) * mAnimator.getPhaseY();
+                final float sliceAngle = drawAngles[xIndex];
+                final float sliceSpace = dataSet.getSliceSpace();
+                final float sliceSpaceMiddleAngle = sliceSpace / (Utils.FDEG2RAD * r);
+
+                // offset needed to center the drawn text in the slice
+                final float offset = (sliceAngle - sliceSpaceMiddleAngle / 2.f) / 2.f;
+
+                angle = angle + offset;
+
                 // calculate the text position
                 float x = (float) (r
                         * Math.cos(Math.toRadians(rotationAngle + angle))
@@ -227,21 +429,24 @@ public class PieChartRenderer extends DataRenderer {
                 // draw everything, depending on settings
                 if (drawXVals && drawYVals) {
 
-                    drawValue(c, formatter, value, entry, 0, x, y);
+                    drawValue(c, formatter, value, entry, 0, x, y, dataSet.getValueTextColor(j));
 
-                    if (j < data.getXValCount())
+                    if (j < data.getXValCount()) {
                         c.drawText(data.getXVals().get(j), x, y + lineHeight,
                                 mValuePaint);
+                    }
 
-                } else if (drawXVals && !drawYVals) {
-                    if (j < data.getXValCount())
+                } else if (drawXVals) {
+                    if (j < data.getXValCount()) {
+                        mValuePaint.setColor(dataSet.getValueTextColor(j));
                         c.drawText(data.getXVals().get(j), x, y + lineHeight / 2f, mValuePaint);
-                } else if (!drawXVals && drawYVals) {
+                    }
+                } else if (drawYVals) {
 
-                    drawValue(c, formatter, value, entry, 0, x, y + lineHeight / 2f);
+                    drawValue(c, formatter, value, entry, 0, x, y + lineHeight / 2f, dataSet.getValueTextColor(j));
                 }
 
-                cnt++;
+                xIndex++;
             }
         }
     }
@@ -250,9 +455,11 @@ public class PieChartRenderer extends DataRenderer {
     public void drawExtras(Canvas c) {
         // drawCircles(c);
         drawHole(c);
-        c.drawBitmap(mDrawBitmap, 0, 0, null);
+        c.drawBitmap(mDrawBitmap.get(), 0, 0, null);
         drawCenterText(c);
     }
+
+    private Path mHoleCirclePath = new Path();
 
     /**
      * draws the hole in the center of the chart and the transparent circle /
@@ -262,30 +469,35 @@ public class PieChartRenderer extends DataRenderer {
 
         if (mChart.isDrawHoleEnabled()) {
 
-            float transparentCircleRadius = mChart.getTransparentCircleRadius();
-            float holeRadius = mChart.getHoleRadius();
             float radius = mChart.getRadius();
-
+            float holeRadius = radius * (mChart.getHoleRadius() / 100);
             PointF center = mChart.getCenterCircleBox();
 
-            // only draw the circle if it can be seen (not covered by the hole)
-            if (transparentCircleRadius > holeRadius) {
+            if (Color.alpha(mHolePaint.getColor()) > 0) {
+                // draw the hole-circle
+                mBitmapCanvas.drawCircle(
+                        center.x, center.y,
+                        holeRadius, mHolePaint);
+            }
 
-                // get original alpha
+            // only draw the circle if it can be seen (not covered by the hole)
+            if (Color.alpha(mTransparentCirclePaint.getColor()) > 0 &&
+                    mChart.getTransparentCircleRadius() > mChart.getHoleRadius()) {
+
                 int alpha = mTransparentCirclePaint.getAlpha();
+                float secondHoleRadius = radius * (mChart.getTransparentCircleRadius() / 100);
+
                 mTransparentCirclePaint.setAlpha((int) ((float) alpha * mAnimator.getPhaseX() * mAnimator.getPhaseY()));
 
                 // draw the transparent-circle
-                mBitmapCanvas.drawCircle(center.x, center.y,
-                        radius / 100 * transparentCircleRadius, mTransparentCirclePaint);
+                mHoleCirclePath.reset();
+                mHoleCirclePath.addCircle(center.x, center.y, secondHoleRadius, Path.Direction.CW);
+                mHoleCirclePath.addCircle(center.x, center.y, holeRadius, Path.Direction.CCW);
+                mBitmapCanvas.drawPath(mHoleCirclePath, mTransparentCirclePaint);
 
                 // reset alpha
                 mTransparentCirclePaint.setAlpha(alpha);
             }
-
-            // draw the hole-circle
-            mBitmapCanvas.drawCircle(center.x, center.y,
-                    radius / 100 * holeRadius, mHolePaint);
         }
     }
 
@@ -301,7 +513,9 @@ public class PieChartRenderer extends DataRenderer {
 
             PointF center = mChart.getCenterCircleBox();
 
-            float innerRadius = mChart.isDrawHoleEnabled() && mChart.isHoleTransparent() ? mChart.getRadius() * (mChart.getHoleRadius() / 100f) : mChart.getRadius();
+            float innerRadius = mChart.isDrawHoleEnabled() && !mChart.isDrawSlicesUnderHoleEnabled()
+                    ? mChart.getRadius() * (mChart.getHoleRadius() / 100f)
+                    : mChart.getRadius();
 
             RectF holeRect = mRectBuffer[0];
             holeRect.left = center.x - innerRadius;
@@ -311,7 +525,7 @@ public class PieChartRenderer extends DataRenderer {
             RectF boundingRect = mRectBuffer[1];
             boundingRect.set(holeRect);
 
-            float radiusPercent = mChart.getCenterTextRadiusPercent();
+            float radiusPercent = mChart.getCenterTextRadiusPercent() / 100f;
             if (radiusPercent > 0.0) {
                 boundingRect.inset(
                         (boundingRect.width() - boundingRect.width() * radiusPercent) / 2.f,
@@ -334,66 +548,42 @@ public class PieChartRenderer extends DataRenderer {
                         Layout.Alignment.ALIGN_CENTER, 1.f, 0.f, false);
             }
 
-            // I wish we could make an ellipse clipping path on Android to clip to the hole...
-            // If we ever find out how, this is the place to add it, based on holeRect
-
             //float layoutWidth = Utils.getStaticLayoutMaxWidth(mCenterTextLayout);
             float layoutHeight = mCenterTextLayout.getHeight();
 
             c.save();
+            if (Build.VERSION.SDK_INT >= 18) {
+                Path path = new Path();
+                path.addOval(holeRect, Path.Direction.CW);
+                c.clipPath(path);
+            }
+
             c.translate(boundingRect.left, boundingRect.top + (boundingRect.height() - layoutHeight) / 2.f);
             mCenterTextLayout.draw(c);
-            c.restore();
 
-//            }
-//
-//        else {
-//
-//
-//                // get all lines from the text
-//                String[] lines = centerText.toString().split("\n");
-//
-//                float maxlineheight = 0f;
-//
-//                // calc the maximum line height
-//                for (String line : lines) {
-//                    float curHeight = Utils.calcTextHeight(mCenterTextPaint, line);
-//                    if (curHeight > maxlineheight)
-//                        maxlineheight = curHeight;
-//                }
-//
-//                float linespacing = maxlineheight * 0.25f;
-//
-//                float totalheight = maxlineheight * lines.length - linespacing * (lines.length - 1);
-//
-//                int cnt = lines.length;
-//
-//                float y = center.y;
-//
-//                for (int i = 0; i < lines.length; i++) {
-//
-//                    String line = lines[lines.length - i - 1];
-//
-//
-//
-//                    c.drawText(line, center.x, y
-//                                    + maxlineheight * cnt - totalheight / 2f,
-//                            mCenterTextPaint);
-//                    cnt--;
-//                    y -= linespacing;
-//                }
-//            }
+            c.restore();
         }
     }
 
     @Override
     public void drawHighlighted(Canvas c, Highlight[] indices) {
 
+        float phaseX = mAnimator.getPhaseX();
+        float phaseY = mAnimator.getPhaseY();
+
+        float angle;
         float rotationAngle = mChart.getRotationAngle();
-        float angle = 0f;
 
         float[] drawAngles = mChart.getDrawAngles();
         float[] absoluteAngles = mChart.getAbsoluteAngles();
+        final PointF center = mChart.getCenterCircleBox();
+        final float radius = mChart.getRadius();
+        final boolean drawInnerArc = mChart.isDrawHoleEnabled() && !mChart.isDrawSlicesUnderHoleEnabled();
+        final float userInnerRadius = drawInnerArc
+                ? radius * (mChart.getHoleRadius() / 100.f)
+                : 0.f;
+
+        final RectF highlightedCircleBox = new RectF();
 
         for (int i = 0; i < indices.length; i++) {
 
@@ -409,36 +599,162 @@ public class PieChartRenderer extends DataRenderer {
             if (set == null || !set.isHighlightEnabled())
                 continue;
 
+            final int entryCount = set.getEntryCount();
+            int visibleAngleCount = 0;
+            for (int j = 0; j < entryCount; j++) {
+                // draw only if the value is greater than zero
+                if ((Math.abs(set.getEntryForIndex(j).getVal()) > 0.000001)) {
+                    visibleAngleCount++;
+                }
+            }
+
             if (xIndex == 0)
                 angle = 0.f;
             else
-                angle = absoluteAngles[xIndex - 1] * mAnimator.getPhaseX();
-            
+                angle = absoluteAngles[xIndex - 1] * phaseX;
+
+            final float sliceSpace = visibleAngleCount <= 1 ? 0.f : set.getSliceSpace();
+
             float sliceAngle = drawAngles[xIndex];
-            float sliceSpace = set.getSliceSpace();
+            float innerRadius = userInnerRadius;
 
             float shift = set.getSelectionShift();
-            RectF circleBox = mChart.getCircleBox();
+            final float highlightedRadius = radius + shift;
+            highlightedCircleBox.set(mChart.getCircleBox());
+            highlightedCircleBox.inset(-shift, -shift);
 
-            /**
-             * Make the box containing current arc larger equally in every
-             * dimension, to preserve shape of arc. Code provided by:
-             *
-             * @link https://github.com/wogg
-             */
-            RectF highlighted = new RectF(circleBox.left - shift,
-                    circleBox.top - shift,
-                    circleBox.right + shift,
-                    circleBox.bottom + shift);
+            final boolean accountForSliceSpacing = sliceSpace > 0.f && sliceAngle <= 180.f;
 
             mRenderPaint.setColor(set.getColor(xIndex));
 
-            // redefine the rect that contains the arc so that the
-            // highlighted pie is not cut off
-            mBitmapCanvas.drawArc(highlighted,
-                    rotationAngle + (angle + sliceSpace / 2f) * mAnimator.getPhaseY(),
-                    (sliceAngle - sliceSpace / 2f) * mAnimator.getPhaseY(),
-                    true, mRenderPaint);
+            final float sliceSpaceAngleOuter = visibleAngleCount == 1 ?
+                    0.f :
+                    sliceSpace / (Utils.FDEG2RAD * radius);
+
+            final float sliceSpaceAngleShifted = visibleAngleCount == 1 ?
+                    0.f :
+                    sliceSpace / (Utils.FDEG2RAD * highlightedRadius);
+
+            final float startAngleOuter = rotationAngle + (angle + sliceSpaceAngleOuter / 2.f) * phaseY;
+            float sweepAngleOuter = (sliceAngle - sliceSpaceAngleOuter) * phaseY;
+            if (sweepAngleOuter < 0.f)
+            {
+                sweepAngleOuter = 0.f;
+            }
+
+            final float startAngleShifted = rotationAngle + (angle + sliceSpaceAngleShifted / 2.f) * phaseY;
+            float sweepAngleShifted = (sliceAngle - sliceSpaceAngleShifted) * phaseY;
+            if (sweepAngleShifted < 0.f)
+            {
+                sweepAngleShifted = 0.f;
+            }
+
+            mPathBuffer.reset();
+            
+            if (sweepAngleOuter % 360f == 0.f) {
+                // Android is doing "mod 360"
+                mPathBuffer.addCircle(center.x, center.y, highlightedRadius, Path.Direction.CW);
+            } else {
+
+                mPathBuffer.moveTo(
+                        center.x + highlightedRadius * (float) Math.cos(startAngleShifted * Utils.FDEG2RAD),
+                        center.y + highlightedRadius * (float) Math.sin(startAngleShifted * Utils.FDEG2RAD));
+
+                mPathBuffer.arcTo(
+                        highlightedCircleBox,
+                        startAngleShifted,
+                        sweepAngleShifted
+                );
+            }
+
+            float sliceSpaceRadius = 0.f;
+            if (accountForSliceSpacing) {
+                sliceSpaceRadius =
+                        calculateMinimumRadiusForSpacedSlice(
+                                center, radius,
+                                sliceAngle * phaseY,
+                                center.x + radius * (float) Math.cos(startAngleOuter * Utils.FDEG2RAD),
+                                center.y + radius * (float) Math.sin(startAngleOuter * Utils.FDEG2RAD),
+                                startAngleOuter,
+                                sweepAngleOuter);
+            }
+
+            // API < 21 does not receive floats in addArc, but a RectF
+            mInnerRectBuffer.set(
+                    center.x - innerRadius,
+                    center.y - innerRadius,
+                    center.x + innerRadius,
+                    center.y + innerRadius);
+
+            if (drawInnerArc &&
+                    (innerRadius > 0.f || accountForSliceSpacing)) {
+
+                if (accountForSliceSpacing) {
+                    float minSpacedRadius = sliceSpaceRadius;
+
+                    if (minSpacedRadius < 0.f)
+                        minSpacedRadius = -minSpacedRadius;
+
+                    innerRadius = Math.max(innerRadius, minSpacedRadius);
+                }
+
+                final float sliceSpaceAngleInner = visibleAngleCount == 1 || innerRadius == 0.f ?
+                        0.f :
+                        sliceSpace / (Utils.FDEG2RAD * innerRadius);
+                final float startAngleInner = rotationAngle + (angle + sliceSpaceAngleInner / 2.f) * phaseY;
+                float sweepAngleInner = (sliceAngle - sliceSpaceAngleInner) * phaseY;
+                if (sweepAngleInner < 0.f)
+                {
+                    sweepAngleInner = 0.f;
+                }
+                final float endAngleInner = startAngleInner + sweepAngleInner;
+
+                if (sweepAngleOuter % 360f == 0.f) {
+                    // Android is doing "mod 360"
+                    mPathBuffer.addCircle(center.x, center.y, innerRadius, Path.Direction.CCW);
+                } else {
+
+                    mPathBuffer.lineTo(
+                            center.x + innerRadius * (float) Math.cos(endAngleInner * Utils.FDEG2RAD),
+                            center.y + innerRadius * (float) Math.sin(endAngleInner * Utils.FDEG2RAD));
+
+                    mPathBuffer.arcTo(
+                            mInnerRectBuffer,
+                            endAngleInner,
+                            -sweepAngleInner
+                    );
+                }
+            }
+            else {
+
+                if (sweepAngleOuter % 360f != 0.f) {
+
+                    if (accountForSliceSpacing) {
+                        final float angleMiddle = startAngleOuter + sweepAngleOuter / 2.f;
+
+                        final float arcEndPointX = center.x +
+                                sliceSpaceRadius * (float) Math.cos(angleMiddle * Utils.FDEG2RAD);
+                        final float arcEndPointY = center.y +
+                                sliceSpaceRadius * (float) Math.sin(angleMiddle * Utils.FDEG2RAD);
+
+                        mPathBuffer.lineTo(
+                                arcEndPointX,
+                                arcEndPointY);
+
+                    } else {
+
+                        mPathBuffer.lineTo(
+                                center.x,
+                                center.y);
+                    }
+
+                }
+
+            }
+
+            mPathBuffer.close();
+
+            mBitmapCanvas.drawPath(mPathBuffer, mRenderPaint);
         }
     }
 
@@ -456,6 +772,9 @@ public class PieChartRenderer extends DataRenderer {
 
         if (!dataSet.isVisible())
             return;
+
+        float phaseX = mAnimator.getPhaseX();
+        float phaseY = mAnimator.getPhaseY();
 
         PointF center = mChart.getCenterCircleBox();
         float r = mChart.getRadius();
@@ -477,16 +796,16 @@ public class PieChartRenderer extends DataRenderer {
 
                 float x = (float) ((r - circleRadius)
                         * Math.cos(Math.toRadians((angle + sliceAngle)
-                        * mAnimator.getPhaseY())) + center.x);
+                        * phaseY)) + center.x);
                 float y = (float) ((r - circleRadius)
                         * Math.sin(Math.toRadians((angle + sliceAngle)
-                        * mAnimator.getPhaseY())) + center.y);
+                        * phaseY)) + center.y);
 
                 mRenderPaint.setColor(dataSet.getColor(j));
                 mBitmapCanvas.drawCircle(x, y, circleRadius, mRenderPaint);
             }
 
-            angle += sliceAngle * mAnimator.getPhaseX();
+            angle += sliceAngle * phaseX;
         }
     }
 
@@ -495,7 +814,8 @@ public class PieChartRenderer extends DataRenderer {
      */
     public void releaseBitmap() {
         if (mDrawBitmap != null) {
-            mDrawBitmap.recycle();
+            mDrawBitmap.get().recycle();
+            mDrawBitmap.clear();
             mDrawBitmap = null;
         }
     }

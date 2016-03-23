@@ -1,11 +1,12 @@
 package com.github.mikephil.charting.components;
 
+import android.graphics.Color;
 import android.graphics.Paint;
 
 import com.github.mikephil.charting.formatter.DefaultValueFormatter;
 import com.github.mikephil.charting.formatter.DefaultYAxisValueFormatter;
-import com.github.mikephil.charting.utils.Utils;
 import com.github.mikephil.charting.formatter.YAxisValueFormatter;
+import com.github.mikephil.charting.utils.Utils;
 
 /**
  * Class representing the y-axis labels settings and its entries. Only use the setter methods to modify it. Do not
@@ -58,14 +59,24 @@ public class YAxis extends AxisBase {
     protected boolean mInverted = false;
 
     /**
-     * if true, the y-label entries will always start at zero
-     */
-    protected boolean mStartAtZero = true;
-
-    /**
      * if true, the set number of y-labels will be forced
      */
     protected boolean mForceLabels = false;
+
+    /**
+     * flag that indicates if the zero-line should be drawn regardless of other grid lines
+     */
+    protected boolean mDrawZeroLine = false;
+
+    /**
+     * Color of the zero line
+     */
+    protected int mZeroLineColor = Color.GRAY;
+
+    /**
+     * Width of the zero line in pixels
+     */
+    protected float mZeroLineWidth = 1f;
 
     /**
      * custom minimum value this axis represents
@@ -113,6 +124,33 @@ public class YAxis extends AxisBase {
     private AxisDependency mAxisDependency;
 
     /**
+     * the minimum width that the axis should take (in dp).
+     *
+     * default: 0.0
+     */
+    protected float mMinWidth = 0.f;
+
+    /**
+     * the maximum width that the axis can take (in dp).
+     * use Inifinity for disabling the maximum
+     * default: Float.POSITIVE_INFINITY (no maximum specified)
+     */
+    protected float mMaxWidth = Float.POSITIVE_INFINITY;
+
+    /**
+     * When true, axis labels are controlled by the `granularity` property.
+     * When false, axis values could possibly be repeated.
+     * This could happen if two adjacent axis values are rounded to same value.
+     * If using granularity this could be avoided by having fewer axis values visible.
+     */
+    protected boolean mGranularityEnabled = true;
+
+    /**
+     * the minimum interval between axis values
+     */
+    protected float mGranularity = 1.0f;
+
+    /**
      * Enum that specifies the axis a DataSet should be plotted against, either LEFT or RIGHT.
      *
      * @author Philipp Jahoda
@@ -135,6 +173,66 @@ public class YAxis extends AxisBase {
 
     public AxisDependency getAxisDependency() {
         return mAxisDependency;
+    }
+
+    /**
+     * @return the minimum width that the axis should take (in dp).
+     */
+    public float getMinWidth() {
+        return mMinWidth;
+    }
+
+    /**
+     * Sets the minimum width that the axis should take (in dp).
+     * @param minWidth
+     */
+    public void setMinWidth(float minWidth) {
+        mMinWidth = minWidth;
+    }
+
+    /**
+     * @return the maximum width that the axis can take (in dp).
+     */
+    public float getMaxWidth() {
+        return mMaxWidth;
+    }
+
+    /**
+     * Sets the maximum width that the axis can take (in dp).
+     * @param maxWidth
+     */
+    public void setMaxWidth(float maxWidth) {
+        mMaxWidth = maxWidth;
+    }
+
+    /**
+     * @return true if granularity is enabled
+     */
+    public boolean isGranularityEnabled() {
+        return mGranularityEnabled;
+    }
+
+    /**
+     * Enabled/disable granularity control on axis value intervals
+     * @param enabled
+     */
+    public void setGranularityEnabled(boolean enabled) {
+        mGranularityEnabled = true;
+    }
+
+    /**
+     * @return the minimum interval between axis values
+     */
+    public float getGranularity() {
+        return mGranularity;
+    }
+
+    /**
+     * Set the minimum interval between axis values. This can be used to avoid label duplicating when zooming in.
+     * @param granularity
+     */
+    public void setGranularity(float granularity) {
+        mGranularity = granularity;
     }
 
     /**
@@ -248,21 +346,17 @@ public class YAxis extends AxisBase {
     }
 
     /**
-     * enable this to force the y-axis labels to always start at zero
+     * This method is deprecated.
+     * Use setAxisMinValue(...) / setAxisMaxValue(...) instead.
      *
-     * @param enabled
+     * @param startAtZero
      */
-    public void setStartAtZero(boolean enabled) {
-        this.mStartAtZero = enabled;
-    }
-
-    /**
-     * returns true if the chart is set to start at zero, false otherwise
-     *
-     * @return
-     */
-    public boolean isStartAtZeroEnabled() {
-        return mStartAtZero;
+    @Deprecated
+    public void setStartAtZero(boolean startAtZero) {
+        if (startAtZero)
+            setAxisMinValue(0f);
+        else
+            resetAxisMinValue();
     }
 
     public float getAxisMinValue() {
@@ -346,6 +440,46 @@ public class YAxis extends AxisBase {
         return mSpacePercentBottom;
     }
 
+    public boolean isDrawZeroLineEnabled() {
+        return mDrawZeroLine;
+    }
+
+    /**
+     * Set this to true to draw the zero-line regardless of weather other
+     * grid-lines are enabled or not. Default: false
+     *
+     * @param mDrawZeroLine
+     */
+    public void setDrawZeroLine(boolean mDrawZeroLine) {
+        this.mDrawZeroLine = mDrawZeroLine;
+    }
+
+    public int getZeroLineColor() {
+        return mZeroLineColor;
+    }
+
+    /**
+     * Sets the color of the zero line
+     *
+     * @param color
+     */
+    public void setZeroLineColor(int color) {
+        mZeroLineColor = color;
+    }
+
+    public float getZeroLineWidth() {
+        return mZeroLineWidth;
+    }
+
+    /**
+     * Sets the width of the zero line in dp
+     *
+     * @param width
+     */
+    public void setZeroLineWidth(float width) {
+        this.mZeroLineWidth = Utils.convertDpToPixel(width);
+    }
+
     /**
      * This is for normal (not horizontal) charts horizontal spacing.
      *
@@ -357,7 +491,20 @@ public class YAxis extends AxisBase {
         p.setTextSize(mTextSize);
 
         String label = getLongestLabel();
-        return (float) Utils.calcTextWidth(p, label) + getXOffset() * 2f;
+        float width = (float) Utils.calcTextWidth(p, label) + getXOffset() * 2f;
+
+        float minWidth = getMinWidth();
+        float maxWidth = getMaxWidth();
+
+        if (minWidth > 0.f)
+            minWidth = Utils.convertDpToPixel(minWidth);
+
+        if (maxWidth > 0.f && maxWidth != Float.POSITIVE_INFINITY)
+            maxWidth = Utils.convertDpToPixel(maxWidth);
+
+        width = Math.max(minWidth, Math.min(width, maxWidth > 0.0 ? maxWidth : width));
+        
+        return width;
     }
 
     /**

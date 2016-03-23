@@ -87,17 +87,17 @@ public class BarChartActivitySinus extends DemoBase implements OnSeekBarChangeLi
         YAxis leftAxis = mChart.getAxisLeft();
         leftAxis.setTypeface(mTf);
         leftAxis.setLabelCount(6, false);
-        leftAxis.setStartAtZero(false);
         leftAxis.setAxisMinValue(-2.5f);
         leftAxis.setAxisMaxValue(2.5f);
+        leftAxis.setGranularity(0.1f);
 
         YAxis rightAxis = mChart.getAxisRight();
         rightAxis.setDrawGridLines(false);
         rightAxis.setTypeface(mTf);
         rightAxis.setLabelCount(6, false);
-        rightAxis.setStartAtZero(false);
         rightAxis.setAxisMinValue(-2.5f);
         rightAxis.setAxisMaxValue(2.5f);
+        rightAxis.setGranularity(0.1f);
 
         mSeekBarX.setOnSeekBarChangeListener(this);
         mSeekBarX.setProgress(150); // set data
@@ -158,13 +158,6 @@ public class BarChartActivitySinus extends DemoBase implements OnSeekBarChangeLi
                 mChart.invalidate();
                 break;
             }
-            case R.id.actionToggleStartzero: {
-                mChart.getAxisLeft().setStartAtZero(!mChart.getAxisLeft().isStartAtZeroEnabled());
-                mChart.getAxisRight().setStartAtZero(!mChart.getAxisRight().isStartAtZeroEnabled());
-                mChart.notifyDataSetChanged();
-                mChart.invalidate();
-                break;
-            }
             case R.id.animateX: {
                 mChart.animateX(1500);
                 break;
@@ -176,18 +169,6 @@ public class BarChartActivitySinus extends DemoBase implements OnSeekBarChangeLi
             case R.id.animateXY: {
 
                 mChart.animateXY(2000, 2000);
-                break;
-            }
-            case R.id.actionToggleFilter: {
-
-                Approximator a = new Approximator(ApproximatorType.DOUGLAS_PEUCKER, 25);
-
-                if (!mChart.isFilteringEnabled()) {
-                    mChart.enableFiltering(a);
-                } else {
-                    mChart.disableFiltering();
-                }
-                mChart.invalidate();
                 break;
             }
             case R.id.actionSave: {

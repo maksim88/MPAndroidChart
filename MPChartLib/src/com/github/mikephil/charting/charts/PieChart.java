@@ -5,8 +5,6 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PointF;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffXfermode;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.util.AttributeSet;
@@ -16,6 +14,7 @@ import com.github.mikephil.charting.data.PieData;
 import com.github.mikephil.charting.highlight.Highlight;
 import com.github.mikephil.charting.interfaces.datasets.IPieDataSet;
 import com.github.mikephil.charting.renderer.PieChartRenderer;
+import com.github.mikephil.charting.utils.ColorTemplate;
 import com.github.mikephil.charting.utils.Utils;
 
 import java.util.List;
@@ -54,6 +53,11 @@ public class PieChart extends PieRadarChartBase<PieData> {
     private boolean mDrawHole = true;
 
     /**
+     * if true, the hole will see-through to the inner tips of the slices
+     */
+    private boolean mDrawSlicesUnderHole = false;
+
+    /**
      * if true, the values inside the piechart are drawn as percent values
      */
     private boolean mUsePercentValues = false;
@@ -84,7 +88,7 @@ public class PieChart extends PieRadarChartBase<PieData> {
      */
     private boolean mDrawCenterText = true;
 
-    private float mCenterTextRadiusPercent = 1.f;
+    private float mCenterTextRadiusPercent = 100.f;
 
     protected float mMaxAngle = 360f;
 
@@ -326,41 +330,29 @@ public class PieChart extends PieRadarChartBase<PieData> {
 
     /**
      * Sets the color for the hole that is drawn in the center of the PieChart
-     * (if enabled). NOTE: Use setHoleColorTransparent(boolean enabled) to make
-     * the hole transparent.
+     * (if enabled).
      *
      * @param color
      */
     public void setHoleColor(int color) {
-        ((PieChartRenderer) mRenderer).getPaintHole().setXfermode(null);
         ((PieChartRenderer) mRenderer).getPaintHole().setColor(color);
     }
 
     /**
-     * Set the hole in the center of the PieChart transparent. Thank you, code
-     * provided by:
-     *
-     * @param enable
-     * @link https://github.com/tbarthel-fr
+     * Enable or disable the visibility of the inner tips of the slices behind the hole
      */
-    public void setHoleColorTransparent(boolean enable) {
-        if (enable) {
-            ((PieChartRenderer) mRenderer).getPaintHole().setColor(0xFFFFFFFF);
-            ((PieChartRenderer) mRenderer).getPaintHole().setXfermode(
-                    new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
-        } else {
-            ((PieChartRenderer) mRenderer).getPaintHole().setXfermode(null);
-        }
+    public void setDrawSlicesUnderHole(boolean enable) {
+        mDrawSlicesUnderHole = enable;
     }
 
     /**
-     * Returns true if the hole in the center of the PieChart is transparent,
+     * Returns true if the inner tips of the slices are visible behind the hole,
      * false if not.
      *
-     * @return true if hole is transparent.
+     * @return true if slices are visible behind the hole.
      */
-    public boolean isHoleTransparent() {
-        return ((PieChartRenderer) mRenderer).getPaintHole().getXfermode() != null;
+    public boolean isDrawSlicesUnderHoleEnabled() {
+        return mDrawSlicesUnderHole;
     }
 
     /**

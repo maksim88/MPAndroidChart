@@ -5,9 +5,9 @@ import com.github.mikephil.charting.data.realm.base.RealmBaseDataSet;
 import com.github.mikephil.charting.interfaces.datasets.IPieDataSet;
 import com.github.mikephil.charting.utils.Utils;
 
+import io.realm.DynamicRealmObject;
 import io.realm.RealmObject;
 import io.realm.RealmResults;
-import io.realm.dynamic.DynamicRealmObject;
 
 /**
  * Created by Philipp Jahoda on 07/11/15.
@@ -15,7 +15,7 @@ import io.realm.dynamic.DynamicRealmObject;
 public class RealmPieDataSet<T extends RealmObject> extends RealmBaseDataSet<T, Entry> implements IPieDataSet {
 
     /**
-     * the space in degrees between the chart-slices, default 0f
+     * the space in pixels between the chart-slices, default 0f
      */
     private float mSliceSpace = 0f;
 
@@ -77,19 +77,19 @@ public class RealmPieDataSet<T extends RealmObject> extends RealmBaseDataSet<T, 
     }
 
     /**
-     * sets the space that is left out between the piechart-slices, default: 0°
-     * --> no space, maximum 45, minimum 0 (no space)
+     * Sets the space that is left out between the piechart-slices in dp.
+     * Default: 0 --> no space, maximum 20f
      *
-     * @param degrees
+     * @param spaceDp
      */
-    public void setSliceSpace(float degrees) {
+    public void setSliceSpace(float spaceDp) {
 
-        if (degrees > 45)
-            degrees = 45f;
-        if (degrees < 0)
-            degrees = 0f;
+        if (spaceDp > 20)
+            spaceDp = 20f;
+        if (spaceDp < 0)
+            spaceDp = 0f;
 
-        mSliceSpace = degrees;
+        mSliceSpace = Utils.convertDpToPixel(spaceDp);
     }
 
     @Override

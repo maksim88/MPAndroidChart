@@ -4,6 +4,7 @@ package com.github.mikephil.charting.data;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.DashPathEffect;
+import android.graphics.drawable.Drawable;
 
 import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 import com.github.mikephil.charting.utils.ColorTemplate;
@@ -40,7 +41,11 @@ public class LineDataSet extends LineRadarDataSet<Entry> implements ILineDataSet
     /** if true, cubic lines are drawn instead of linear */
     private boolean mDrawCubic = false;
 
+    /** if true, stepped lines are drawn instead of linear */
+    private boolean mDrawStepped = false;
+
     private boolean mDrawCircleHole = true;
+
 
     public LineDataSet(List<Entry> yVals, String label) {
         super(yVals, label);
@@ -197,6 +202,23 @@ public class LineDataSet extends LineRadarDataSet<Entry> implements ILineDataSet
     @Override
     public boolean isDrawCubicEnabled() {
         return mDrawCubic;
+    }
+
+    /**
+     * If set to true, the linechart lines are drawn in stepped-style instead of
+     * linear.
+     * This does not work with cubic lines, of course.
+     * Default: false
+     *
+     * @param enabled
+     */
+    public void setDrawStepped(boolean enabled) {
+        mDrawStepped = enabled;
+    }
+
+    @Override
+    public boolean isDrawSteppedEnabled() {
+        return mDrawStepped;
     }
 
     /** ALL CODE BELOW RELATED TO CIRCLE-COLORS */

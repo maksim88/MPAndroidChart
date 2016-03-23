@@ -1,6 +1,7 @@
 package com.github.mikephil.charting.interfaces.datasets;
 
 import android.graphics.DashPathEffect;
+import android.graphics.drawable.Drawable;
 
 import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.formatter.FillFormatter;
@@ -24,6 +25,13 @@ public interface ILineDataSet extends ILineRadarDataSet<Entry> {
      * @return
      */
     boolean isDrawCubicEnabled();
+
+    /**
+     * Returns true if drawing stepped lines is enabled, false if not.
+     *
+     * @return
+     */
+    boolean isDrawSteppedEnabled();
 
     /**
      * Returns the size of the drawn circles.
